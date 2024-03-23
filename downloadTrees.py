@@ -10,7 +10,7 @@ import json
 import re
 from pathlib import Path
 
-import requests
+import httpx
 from pyproj import Transformer, CRS
 from pyproj import Geod
 
@@ -50,9 +50,9 @@ class TreesDownloader:
         return r.sub(r'\g<separator>"\g<key>":', data)
 
     def downloadData(self, theme: str, bbox: str) -> str:
-        return requests.post(
+        return httpx.post(
             "https://mapa.um.warszawa.pl/mapviewer/foi",
-            dict(
+            data=dict(
                 request="getfoi",
                 version="1.0",
                 bbox=bbox,
