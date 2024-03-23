@@ -216,9 +216,9 @@ class TreesDownloader:
 
     async def downloadTrees(self):
         dataSets = [f"dane_wawa.BOS_ZIELEN_DRZEWA_{i}_SM" for i in range(1, 21)]
-        allTrees = flatten(
-            [(await self.process(theme=theme))["features"] for theme in dataSets]
-        )
+        allTrees = []
+        for theme in tqdm(dataSets, desc="Downloading layers"):
+            allTrees.extend((await self.process(theme=theme))["features"])
         monuments = list(filter(self.isTreeMonument, allTrees))
         self.writeOutput(theme="ALL_TREES", data=FeatureCollection(allTrees))
         self.writeOutput(theme="POTENTIAL_MONUMENTS", data=FeatureCollection(monuments))
