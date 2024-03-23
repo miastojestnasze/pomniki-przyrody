@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
+import asyncio
+import itertools
 from itertools import product
 from typing import Tuple, List
 
 import geojson
 from geojson import Feature, Point, FeatureCollection
-from tqdm import tqdm
+from tqdm.asyncio import tqdm
 
 import json
 import re
@@ -45,6 +47,13 @@ MONUMENT_SPECIES = (
 )
 
 
+httpxClient = httpx.AsyncClient(limits=httpx.Limits(max_connections=10))
+
+
+def flatten(data: List[List[Feature]]) -> List[Feature]:
+    return list(itertools.chain(*data))
+
+
 class TreesDownloader:
     def __init__(self, cacheEnabled=True):
         self.wgs84Geod = Geod(ellps="WGS84")
@@ -57,29 +66,32 @@ class TreesDownloader:
         r = re.compile(r"(?P<separator>[{,])(?P<key>[a-zA-Z]+):")
         return r.sub(r'\g<separator>"\g<key>":', data)
 
-    def downloadData(self, theme: str, bbox: str) -> str:
-        return httpx.post(
-            "https://mapa.um.warszawa.pl/mapviewer/foi",
-            data=dict(
-                request="getfoi",
-                version="1.0",
-                bbox=bbox,
-                width=760,
-                height=1190,
-                theme=theme,
-                dstsrid=2178,
-                cachefoi="yes",
-                tid="85_311281927602616807",
-                aw="no",
-            ),
+    async def downloadData(self, theme: str, bbox: str) -> str:
+        return (
+            await httpxClient.post(
+                "https://mapa.um.warszawa.pl/mapviewer/foi",
+                data=dict(
+                    request="getfoi",
+                    version="1.0",
+                    bbox=bbox,
+                    width=760,
+                    height=1190,
+                    theme=theme,
+                    dstsrid=2178,
+                    cachefoi="yes",
+                    tid="85_311281927602616807",
+                    aw="no",
+                ),
+                timeout=None,
+            )
         ).text
 
-    def downloadDataWithCache(self, theme: str, bbox: str) -> FeatureCollection:
+    async def downloadDataWithCache(self, theme: str, bbox: str) -> FeatureCollection:
         umDataDir = Path("umRawData")
         umDataDir.mkdir(exist_ok=True)
         umDataPath = umDataDir / f"{theme}-{bbox}.raw"
         if not umDataPath.exists() or not self.cacheEnabled:
-            umDataPath.write_text(self.downloadData(theme, bbox))
+            umDataPath.write_text(await self.downloadData(theme, bbox))
         umData = json.loads(self.addQuotesToJSONKeys(umDataPath.read_text()))[
             "foiarray"
         ]
@@ -101,7 +113,7 @@ class TreesDownloader:
         outputPath = outputDir / (theme + ".geojson")
         geojson.dump(data, outputPath.open("w"))
 
-    def process(self, theme: str) -> FeatureCollection:
+    async def process(self, theme: str) -> FeatureCollection:
         bboxWgs84 = [20.8516882, 52.0978497, 21.2711512, 52.3681531]  # Warszawa
         # bboxWgs84 = [20.9146636, 52.2094774, 21.0015245, 52.2594357]  # Wola
 
@@ -117,14 +129,23 @@ class TreesDownloader:
         timesLng = 30
         stepLat = int((maxLat - minLat) / timesLat)
         stepLng = int((maxLng - minLng) / timesLng)
-        trees = list()
-        for latIndex, lngIndex in tqdm(list(product(range(timesLat), range(timesLng)))):
+
+        async def downloadFragment(latIndex: int, lngIndex: int):
             lat = minLat + stepLat * latIndex
             bigLat = lat + stepLat
             lng = minLng + stepLng * lngIndex
             bigLng = lng + stepLng
             bbox = f"{lng}:{lat}:{bigLng}:{bigLat}"
-            trees.extend(self.downloadDataWithCache(theme, bbox)["features"])
+            return (await self.downloadDataWithCache(theme, bbox))["features"]
+
+        trees = flatten(
+            await tqdm.gather(
+                *[
+                    downloadFragment(latIndex, lngIndex)
+                    for latIndex, lngIndex in product(range(timesLat), range(timesLng))
+                ]
+            )
+        )
         outputData = FeatureCollection(features=list(trees))
         self.writeOutput(theme=theme, data=outputData)
         return outputData
@@ -193,12 +214,11 @@ class TreesDownloader:
                 """)
             f.write("</Document></kml>\n")
 
-    def downloadTrees(self):
+    async def downloadTrees(self):
         dataSets = [f"dane_wawa.BOS_ZIELEN_DRZEWA_{i}_SM" for i in range(1, 21)]
-        allTrees = list()
-        for theme in tqdm(dataSets):
-            trees = self.process(theme=theme)
-            allTrees.extend(trees["features"])
+        allTrees = flatten(
+            [(await self.process(theme=theme))["features"] for theme in dataSets]
+        )
         monuments = list(filter(self.isTreeMonument, allTrees))
         self.writeOutput(theme="ALL_TREES", data=FeatureCollection(allTrees))
         self.writeOutput(theme="POTENTIAL_MONUMENTS", data=FeatureCollection(monuments))
@@ -206,4 +226,4 @@ class TreesDownloader:
 
 
 if __name__ == "__main__":
-    TreesDownloader().downloadTrees()
+    asyncio.run(TreesDownloader().downloadTrees())
