@@ -2,9 +2,13 @@
 pre-commit:
   parallel: true
   commands:
-    ruff:
+    lint:
       run: ruff check . --fix
       stage_fixed: true
+    format:
+      run: ruff format .
+      stage_fixed: true
+
 
 skip_output:
   - meta           # Skips lefthook version printing

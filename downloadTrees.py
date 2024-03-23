@@ -34,7 +34,15 @@ SPECIES_300 = "buk zwyczajny, buk pospolity, dąb bezszypułkowy, dąb szypułko
     ", "
 )
 SPECIES_350 = ["topola"]
-MONUMENT_SPECIES = SPECIES_50 + SPECIES_100 + SPECIES_150 + SPECIES_200 + SPECIES_250 + SPECIES_300 + SPECIES_350
+MONUMENT_SPECIES = (
+    SPECIES_50
+    + SPECIES_100
+    + SPECIES_150
+    + SPECIES_200
+    + SPECIES_250
+    + SPECIES_300
+    + SPECIES_350
+)
 
 
 class TreesDownloader:
@@ -132,8 +140,10 @@ class TreesDownloader:
         try:
             circumferences = list(map(int, tags["Obwód pnia w cm"].split(",")))
             maxCircumference = max(circumferences)
-            circumference = int(maxCircumference + (sum(circumferences) - maxCircumference) / 2)
-        except:
+            circumference = int(
+                maxCircumference + (sum(circumferences) - maxCircumference) / 2
+            )
+        except Exception:
             return False
 
         def checkSpecies(species: List[str], circumferenceThreshold: int):
@@ -143,6 +153,7 @@ class TreesDownloader:
                 if x in name:
                     return True
             return False
+
         # if not checkSpecies(MONUMENT_SPECIES, 0) and circumference >= 200:
         #     print(name, circumference)
         return (
@@ -160,13 +171,17 @@ class TreesDownloader:
         outputDir.mkdir(exist_ok=True)
         outputPath = outputDir / (theme + ".kml")
         with outputPath.open("w") as f:
-            f.write('<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document>\n')
+            f.write(
+                '<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document>\n'
+            )
             for tree in data:
                 lat, lng = tree["geometry"]["coordinates"]
                 tags = tree["properties"]
                 name = tags["Nazwa polska"]
                 circumferences = tags["Obwód pnia w cm"]
-                description = "\n".join([f"{key}: {value}" for key, value in tags.items()])
+                description = "\n".join(
+                    [f"{key}: {value}" for key, value in tags.items()]
+                )
                 f.write(f"""
                 <Placemark>
                     <name>{name} {circumferences}</name>
@@ -178,12 +193,8 @@ class TreesDownloader:
                 """)
             f.write("</Document></kml>\n")
 
-
-
     def downloadTrees(self):
-        dataSets = [
-            f"dane_wawa.BOS_ZIELEN_DRZEWA_{i}_SM" for i in range(1, 21)
-        ]
+        dataSets = [f"dane_wawa.BOS_ZIELEN_DRZEWA_{i}_SM" for i in range(1, 21)]
         allTrees = list()
         for theme in tqdm(dataSets):
             trees = self.process(theme=theme)
@@ -192,6 +203,7 @@ class TreesDownloader:
         self.writeOutput(theme="ALL_TREES", data=FeatureCollection(allTrees))
         self.writeOutput(theme="POTENTIAL_MONUMENTS", data=FeatureCollection(monuments))
         self.saveKML(theme="POTENTIAL_MONUMENTS", data=monuments)
+
 
 if __name__ == "__main__":
     TreesDownloader().downloadTrees()
